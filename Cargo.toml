@@ -1,0 +1,18 @@
+[package]
+name = "tomatwo-rustygooey"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eframe = { version = "0.24.1", features = ["default_fonts", "wgpu"] }
+
+
+structopt = "0.3"
+rand = "0.8"
+memmap2 = "0.5"
+rayon = "1.5"
+tempfile = "3.2"
+rfd = "0.5"
+image = "0.24.5"
