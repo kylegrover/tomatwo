@@ -1,0 +1,38 @@
+tomatwo is currently in source-available development
+a proper license will be added when the project is ready for distribution
+contact @ufffd if you have any questions or want to make use of the project as is
+
+---
+
+tomatwo is based directly on tomato.py by itsKaspar:
+
+MIT License
+
+Copyright (c) 2017 Kaspar RAVEL
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+tomatwo uses:
+eframe, structopt, rand, memmap2, rayon, tempfile, rfd, image
+
+---
+
+tomatwo relies on ffmpeg for video conversion. ffmpeg is licensed under the LGPLv2.1 and GPLv3. see https://ffmpeg.org/legal.html for details.
