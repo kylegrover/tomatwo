@@ -6,7 +6,7 @@ default-run = "gooey_tomatwo"
 
 [[bin]]
 name = "gooey_tomatwo"
-path = "src/main.rs"
+path = "src/gooey_tomatwo.rs"
 
 [[bin]]
 name = "tomatwo"
