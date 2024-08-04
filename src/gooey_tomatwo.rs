@@ -16,7 +16,7 @@ enum ProcessState {
     Error,
 }
 
-struct MyApp {
+struct Gooey {
     input_path: Option<PathBuf>,
     avi_path: Option<PathBuf>,
     mode: String,
@@ -28,7 +28,7 @@ struct MyApp {
     tx: Sender<ProcessState>,
 }
 
-impl MyApp {
+impl Gooey {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let (tx, rx) = channel();
         Self {
@@ -72,7 +72,7 @@ impl MyApp {
     }
 }
 
-impl eframe::App for MyApp {
+impl eframe::App for Gooey {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Video Datamosher");
@@ -163,9 +163,9 @@ impl eframe::App for MyApp {
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions::default();
     eframe::run_native(
-        "Video Datamosher",
+        "G 🍅 🍅 E Y   T 🍅 M A T W 🍅",
         options,
-        Box::new(|cc| Box::new(MyApp::new(cc))),
+        Box::new(|cc| Box::new(Gooey::new(cc))),
     )
 }
 
