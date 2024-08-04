@@ -1,7 +1,8 @@
 #!/usr/bin/python3
+import time
+timer_start = time.time_ns()
 
 import argparse, os, re, random, struct
-from itertools import chain
 from itertools import repeat
 
 print (" _                        _        ")
@@ -149,8 +150,8 @@ final = []
 if firstframe :
 	for x in l :
 		if x[2] == 'video':
-	 		clean.append(x)
-	 		break
+			clean.append(x)
+			break
 
 # clean the list by killing "big" frames
 for x in l:
@@ -258,3 +259,7 @@ os.remove(temp_idx1)
 os.rmdir(temp_dir)
 
 print("> step 5/5 : done - final idx size : " + str(len(final)))
+
+timer_end = time.time_ns()
+# time passed in ms
+print("time elapsed: " + str(round((timer_end - timer_start) / 1000000, 2)) + "ms")
