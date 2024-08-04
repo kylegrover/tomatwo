@@ -2,17 +2,27 @@
 name = "tomatwo-rustygooey"
 version = "0.1.0"
 edition = "2021"
+default-run = "gooey_tomatwo"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "gooey_tomatwo"
+path = "src/main.rs"
+
+[[bin]]
+name = "tomatwo"
+path = "src/tomatwo.rs"
 
 [dependencies]
-eframe = { version = "0.24.1", features = ["default_fonts", "wgpu"] }
-
-
-structopt = "0.3"
 rand = "0.8"
 memmap2 = "0.5"
 rayon = "1.5"
 tempfile = "3.2"
+
+#[dependencies.gooey_tomatwo]
+eframe = { version = "0.24.1", features = ["default_fonts", "wgpu"] }
 rfd = "0.5"
-image = "0.24.5"
+# image = "0.24.5"
+open = "1.7"
+
+#[dependencies.tomatwo]
+structopt = "0.3"

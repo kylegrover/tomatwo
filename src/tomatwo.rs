@@ -2,8 +2,8 @@
 
 use structopt::StructOpt;
 use std::path::PathBuf;
-mod tomatwo_lib;
-use tomatwo_lib::{Opt as LibOpt, process_video};
+mod tomatwo_seed;
+use tomatwo_seed::{Opt as LibOpt, process_video};
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "tomato")]

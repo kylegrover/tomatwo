@@ -146,6 +146,7 @@ pub fn assemble_output_file(fileout: &PathBuf, temp_hdrl: &PathBuf, temp_movi: &
 }
 
 pub fn process_video(opt: &Opt) -> io::Result<PathBuf> {
+    let timer = std::time::Instant::now();
     let temp_dir = tempfile::tempdir()?;
     let temp_hdrl = temp_dir.path().join("hdrl.bin");
     let temp_movi = temp_dir.path().join("movi.bin");
@@ -181,6 +182,9 @@ pub fn process_video(opt: &Opt) -> io::Result<PathBuf> {
         opt.mode, cname, pname));
 
     assemble_output_file(&fileout, &temp_hdrl, &temp_movi, &temp_idx1, &final_frames)?;
+
+    println!("> Done! Output file: {:?}", fileout);
+    println!("> Total time: {:.2?}", timer.elapsed());
 
     Ok(fileout)
 }
