@@ -2,6 +2,8 @@
 
 tomato.py, rewritten in rust and with a GUI
 
+**Test**: `cargo run --release`\
+**Build**: `cargo build`
 
 ideas:
 - https://dioxuslabs.com/ for frontend?
