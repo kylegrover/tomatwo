@@ -171,15 +171,29 @@ fn main() -> Result<(), eframe::Error> {
 
 fn ffmpeg_to_avi(input: &PathBuf) -> Result<PathBuf, std::io::Error> {
     let output = input.with_extension("avi");
+    // check if the output file already exists
+    if output.exists() {
+        println!("Output file already exists: {:?} using that", output);
+        return Ok(output);
+    }
+
     let input_str = input.to_str().unwrap();
     let output_str = output.to_str().unwrap();
 
     let status = Command::new("ffmpeg")
+        // .args(&[
+        //     "-i", input_str,
+        //     "-c:v", "rawvideo",
+        //     "-vf", "format=yuv420p",
+        //     "-f", "avi",
+        //     output_str
+        // ])
         .args(&[
             "-i", input_str,
-            "-c:v", "rawvideo",
-            "-vf", "format=yuv420p",
-            "-f", "avi",
+            "-c:v", "libxvid", // mjpeg?
+            "-pix_fmt", "yuv420p", // needed?
+            "-q:v", "2", // 0?
+            "-q:a", "0",
             output_str
         ])
         .status()?;
