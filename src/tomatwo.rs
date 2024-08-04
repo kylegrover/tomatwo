@@ -22,6 +22,8 @@ struct Opt {
     firstframe: bool,
     #[structopt(short, default_value = "0.7")]
     kill: f32,
+    #[structopt(short)]
+    preview: bool
 }
 
 fn main() -> std::io::Result<()> {
@@ -57,6 +59,7 @@ fn main() -> std::io::Result<()> {
         audio: opt.audio,
         firstframe: opt.firstframe,
         kill: opt.kill,
+        preview: opt.preview
     };
 
     let timer = std::time::Instant::now();
