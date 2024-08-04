@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 default-run = "gooey_tomatwo"
 
+[lib]
+name = "tomatwo_seed"
+path = "src/tomatwo_seed.rs"
+test = true
+doctest = true
+bench = true
+doc = true
+
 [[bin]]
 name = "gooey_tomatwo"
 path = "src/gooey_tomatwo.rs"

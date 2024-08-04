@@ -19,9 +19,11 @@ enum ProcessState {
 struct Gooey {
     input_path: Option<PathBuf>,
     avi_path: Option<PathBuf>,
+    saved_path: Option<PathBuf>,
     mode: String,
     count_frames: usize,
     posit_frames: usize,
+    using_existing: bool,
     kill: f32,
     process_state: ProcessState,
     rx: Receiver<ProcessState>,
@@ -34,9 +36,11 @@ impl Gooey {
         Self {
             input_path: None,
             avi_path: None,
+            saved_path: None,
             mode: "void".to_string(),
             count_frames: 1,
             posit_frames: 1,
+            using_existing: false,
             kill: 0.7,
             process_state: ProcessState::Idle,
             rx,
@@ -44,7 +48,7 @@ impl Gooey {
         }
     }
 
-    fn process_video(&self) {
+    fn process_video(&self, preview: bool) {
         let opt = Opt {
             input: self.avi_path.clone().unwrap(),
             mode: self.mode.clone(),
@@ -53,6 +57,7 @@ impl Gooey {
             audio: false,
             firstframe: false,
             kill: self.kill,
+            preview,
         };
 
         let tx = self.tx.clone();
@@ -87,7 +92,7 @@ impl eframe::App for Gooey {
                     }
                     println!("Converting input video to AVI...");
                     self.tx.send(ProcessState::Converting).unwrap();
-                    match ffmpeg_to_avi(&path) {
+                    match ffmpeg_to_avi(&path, false, &mut self.using_existing) {
                         Ok(avi_path) => {
                             self.avi_path = Some(avi_path);
                             self.tx.send(ProcessState::Idle).unwrap();
@@ -103,6 +108,42 @@ impl eframe::App for Gooey {
             if let Some(path) = &self.input_path {
                 ui.label(format!("Selected file: {}", path.display()));
             }
+            // if they didnt provide an avi, show the converted file we're using
+            if self.avi_path.is_some() && !self.using_existing {
+                ui.label("Converted video to AVI: ".to_owned() + self.avi_path.as_ref().unwrap().to_str().unwrap());
+            }
+
+            if self.using_existing {
+                ui.label("Using existing AVI file: ".to_owned() + self.avi_path.as_ref().unwrap().to_str().unwrap());
+                if ui.button("Re-convert video to AVI").clicked() {
+                    self.tx.send(ProcessState::Converting).unwrap();
+                    match ffmpeg_to_avi(&self.input_path.clone().unwrap(), true, &mut self.using_existing) {
+                        Ok(avi_path) => {
+                            self.avi_path = Some(avi_path);
+                            self.using_existing = false;
+                            self.tx.send(ProcessState::Idle).unwrap();
+                        },
+                        Err(e) => {
+                            eprintln!("Error re-converting input video to AVI: {:?}", e);
+                            self.tx.send(ProcessState::Error).unwrap();
+                        }
+                    }
+                }
+            }
+            
+                // if ui.button("Re-convert video to AVI").clicked() {
+                //     self.tx.send(ProcessState::Converting).unwrap();
+                //     match ffmpeg_to_avi(path, true) {
+                //         Ok(avi_path) => {
+                //             self.avi_path = Some(avi_path);
+                //             self.tx.send(ProcessState::Idle).unwrap();
+                //         },
+                //         Err(e) => {
+                //             eprintln!("Error re-converting input video to AVI: {:?}", e);
+                //             self.tx.send(ProcessState::Error).unwrap();
+                //         }
+                //     }
+                // }
 
             ui.horizontal(|ui| {
                 ui.label("Mode:");
@@ -120,8 +161,15 @@ impl eframe::App for Gooey {
             ui.add(egui::Slider::new(&mut self.posit_frames, 1..=100).text("Position Frames"));
             ui.add(egui::Slider::new(&mut self.kill, 0.0..=1.0).text("Kill Threshold"));
 
-            if ui.button("Process Video").clicked() && self.avi_path.is_some() {
-                self.process_video();
+            if self.avi_path.is_some() {
+                if ui.button("Taste it").clicked()
+                    { self.process_video(true); }
+                if ui.button("Jar it").clicked()
+                    { self.process_video(false); }
+            }
+
+            if self.saved_path.is_some() {
+                ui.label("Saved to: ".to_owned() + self.saved_path.as_ref().unwrap().to_str().unwrap());
             }
 
             match &self.process_state {
@@ -129,14 +177,10 @@ impl eframe::App for Gooey {
                 ProcessState::Converting => { ui.label("Converting Video to AVI..."); }
                 ProcessState::Datamoshing => { ui.label("Datamoshing..."); }
                 ProcessState::Done(path) => {
-                    ui.label("Processing complete!");
+                    ui.label("Datamoshed video saved to:");
+                    ui.label(path.to_str().unwrap());
                     if ui.button("Play Datamoshed Video").clicked() {
-                        // Open the video with ffplay command
-                        if let Err(e) = Command::new("ffplay")
-                            .arg(path)
-                            .status() {
-                            eprintln!("Failed to play video: {:?}", e);
-                        }
+                        let _ = try_ffplay(path);
                     }
                     if ui.button("Save Datamoshed Video").clicked() {
                         if let Some(save_path) = rfd::FileDialog::new()
@@ -169,11 +213,12 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
-fn ffmpeg_to_avi(input: &PathBuf) -> Result<PathBuf, std::io::Error> {
+fn ffmpeg_to_avi(input: &PathBuf, force: bool, &mut ref mut using_existing: &mut bool) -> Result<PathBuf, std::io::Error> {
     let output = input.with_extension("avi");
     // check if the output file already exists
-    if output.exists() {
+    if !force && output.exists() {
         println!("Output file already exists: {:?} using that", output);
+        *using_existing = true;
         return Ok(output);
     }
 
@@ -181,19 +226,13 @@ fn ffmpeg_to_avi(input: &PathBuf) -> Result<PathBuf, std::io::Error> {
     let output_str = output.to_str().unwrap();
 
     let status = Command::new("ffmpeg")
-        // .args(&[
-        //     "-i", input_str,
-        //     "-c:v", "rawvideo",
-        //     "-vf", "format=yuv420p",
-        //     "-f", "avi",
-        //     output_str
-        // ])
         .args(&[
             "-i", input_str,
-            "-c:v", "libxvid", // mjpeg?
+            "-c:v", "libxvid", // mjpeg, rawvideo
             "-pix_fmt", "yuv420p", // needed?
             "-q:v", "2", // 0?
             "-q:a", "0",
+            "-y", // overwrite
             output_str
         ])
         .status()?;
@@ -227,4 +266,11 @@ fn ffmpeg_to_mp4(input: &PathBuf, fast: bool) -> Result<PathBuf, std::io::Error>
     } else {
         Err(std::io::Error::new(std::io::ErrorKind::Other, "FFmpeg command failed"))
     }
+}
+
+fn try_ffplay(path: &PathBuf) -> Result<(), std::io::Error> {
+    Command::new("ffplay")
+        .arg(path)
+        .status()?;
+    Ok(())
 }

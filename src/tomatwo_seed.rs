@@ -1,5 +1,5 @@
 // tomatwo_lib.rs
-
+use std::process::{Command, Stdio};
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -18,6 +18,7 @@ pub struct Opt {
     pub audio: bool,
     pub firstframe: bool,
     pub kill: f32,
+    pub preview: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -175,16 +176,56 @@ pub fn process_video(opt: &Opt) -> io::Result<PathBuf> {
 
     let final_frames = process_frames(&clean_frames, &opt);
 
+    println!("> Processing complete, writing output file... {:.2?}", timer.elapsed());
+
     let cname = if opt.countframes > 1 { format!("-c{}", opt.countframes) } else { String::new() };
     let pname = if opt.positframes > 1 { format!("-n{}", opt.positframes) } else { String::new() };
     let fileout = opt.input.with_file_name(format!("{}-{}{}{}.avi", 
         opt.input.file_stem().unwrap().to_str().unwrap(), 
         opt.mode, cname, pname));
 
-    assemble_output_file(&fileout, &temp_hdrl, &temp_movi, &temp_idx1, &final_frames)?;
+    if opt.preview {
+        preview_output(&temp_hdrl, &temp_movi, &temp_idx1, &final_frames)?;
+    } else {
+        assemble_output_file(&fileout, &temp_hdrl, &temp_movi, &temp_idx1, &final_frames)?;
+    } 
 
     println!("> Done! Output file: {:?}", fileout);
     println!("> Total time: {:.2?}", timer.elapsed());
 
     Ok(fileout)
+}
+
+pub fn preview_output(temp_hdrl: &PathBuf, temp_movi: &PathBuf, temp_idx1: &PathBuf, final_frames: &[Frame]) -> io::Result<()> {
+    let mut ffplay = Command::new("ffplay")
+        .args(&["-f", "avi", "-i", "-"])  // Read from stdin
+        .stdin(Stdio::piped())
+        .spawn()?;
+
+    let mut ffplay_stdin = ffplay.stdin.take().expect("Failed to open ffplay stdin");
+
+    // Write HDRL
+    io::copy(&mut File::open(temp_hdrl)?, &mut ffplay_stdin)?;
+
+    // Write MOVI header
+    ffplay_stdin.write_all(b"movi")?;
+
+    // Write frames
+    let movi_file = File::open(temp_movi)?;
+    let mmap = unsafe { Mmap::map(&movi_file)? };
+
+    for frame in final_frames {
+        ffplay_stdin.write_all(&mmap[frame.offset..frame.offset + frame.size])?;
+    }
+
+    // Write IDX1
+    io::copy(&mut File::open(temp_idx1)?, &mut ffplay_stdin)?;
+
+    // Close stdin to signal end of input
+    drop(ffplay_stdin);
+
+    // Wait for ffplay to finish
+    ffplay.wait()?;
+
+    Ok(())
 }
