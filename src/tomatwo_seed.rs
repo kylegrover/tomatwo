@@ -106,7 +106,7 @@ pub fn build_frame_table(temp_movi: &PathBuf, include_audio: bool) -> io::Result
     let file = File::open(temp_movi)?;
     let mmap = unsafe { Mmap::map(&file)? };
 
-    let mut frame_table: Vec<Frame> = mmap.par_windows(4)
+    let frame_table: Vec<Frame> = mmap.par_windows(4)
         .enumerate()
         .filter_map(|(i, window)| {
             match window {
@@ -117,13 +117,14 @@ pub fn build_frame_table(temp_movi: &PathBuf, include_audio: bool) -> io::Result
         })
         .collect();
 
-    for i in 0..frame_table.len() {
-        frame_table[i].size = if i + 1 < frame_table.len() {
-            frame_table[i + 1].offset - frame_table[i].offset
+    let frame_table = frame_table.into_iter().enumerate().map(|(index, mut frame)| {
+        frame.size = if index + 1 < frame_table.len() {
+            frame_table[index + 1].offset - frame.offset
         } else {
-            mmap.len() - frame_table[i].offset
+            mmap.len() - frame.offset
         };
-    }
+        frame
+    }).collect();
 
     Ok(frame_table)
 }

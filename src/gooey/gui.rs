@@ -1,12 +1,8 @@
 use eframe::egui;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
-// use rfd;
-// use std::process::Command;
-// use tokio::process::Command as TokioCommand;
-// use tokio::task;
 use super::models::{Gooey, ProcessState};
-use super::video_processing::{ffmpeg_to_avi, spawn_try_ffplay};
+use super::video_processing::{ffmpeg_to_avi, spawn_try_ffplay, ffmpeg_to_mp4};
 use tomatwo_seed::{Opt, process_video};
 
 
@@ -157,11 +153,20 @@ impl eframe::App for Gooey {
                     
                     ui.horizontal(|ui| {
                         if ui.button("Bake output").clicked() {
-                            if let Some(save_path) = rfd::FileDialog::new()
-                                .add_filter("AVI", &["avi"])
-                                .save_file() {
-                                if let Err(e) = std::fs::copy(path, save_path) {
-                                    eprintln!("Failed to save video: {:?}", e);
+                            // prompt for file name/location then converts to mp4 and saves
+                            let output = rfd::FileDialog::new().save_file();
+                            if let Some(output) = output {
+                                self.saved_path = Some(output.clone());
+                                self.tx.send(ProcessState::Converting).unwrap();
+                                match ffmpeg_to_mp4(&path, false) {
+                                    Ok(mp4_path) => {
+                                        self.saved_path = Some(mp4_path);
+                                        self.tx.send(ProcessState::Idle).unwrap();
+                                    },
+                                    Err(e) => {
+                                        eprintln!("Error converting datamoshed video to MP4: {:?}", e);
+                                        self.tx.send(ProcessState::Error).unwrap();
+                                    }
                                 }
                             }
                         }

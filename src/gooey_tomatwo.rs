@@ -1,8 +1,9 @@
 mod gooey;
 
-use crate::gooey::{Gooey};
+use gooey::{Gooey, runtime_init};
 
 fn main() -> Result<(), eframe::Error> {
+    runtime_init();
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "G 🍅 🍅 E Y   T 🍅 M A T W 🍅",

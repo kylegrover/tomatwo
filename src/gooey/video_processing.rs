@@ -1,7 +1,16 @@
+use crate::gooey::runtime;
+
 use std::path::PathBuf;
 use std::process::Command;
 use tokio::process::Command as TokioCommand;
 use tokio::task;
+
+pub fn ffmpeg_list_codecs() -> Result<(), std::io::Error> {
+    Command::new("ffmpeg")
+        .args(&["-codecs"])
+        .status()?;
+    Ok(())
+}
 
 pub fn ffmpeg_to_avi(input: &PathBuf, force: bool, &mut ref mut using_existing: &mut bool) -> Result<PathBuf, std::io::Error> {
     // make subdir 🍅/ in same directory as file and output the file there
