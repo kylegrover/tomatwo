@@ -112,19 +112,6 @@ impl eframe::App for Gooey {
                 }
             }
             
-                // if ui.button("Re-convert video to AVI").clicked() {
-                //     self.tx.send(ProcessState::Converting).unwrap();
-                //     match ffmpeg_to_avi(path, true) {
-                //         Ok(avi_path) => {
-                //             self.avi_path = Some(avi_path);
-                //             self.tx.send(ProcessState::Idle).unwrap();
-                //         },
-                //         Err(e) => {
-                //             eprintln!("Error re-converting input video to AVI: {:?}", e);
-                //             self.tx.send(ProcessState::Error).unwrap();
-                //         }
-                //     }
-                // }
 
             ui.horizontal(|ui| {
                 ui.label("Mode:");
@@ -134,7 +121,11 @@ impl eframe::App for Gooey {
                         ui.selectable_value(&mut self.mode, "void".to_string(), "Void");
                         ui.selectable_value(&mut self.mode, "random".to_string(), "Random");
                         ui.selectable_value(&mut self.mode, "reverse".to_string(), "Reverse");
+                        ui.selectable_value(&mut self.mode, "invert".to_string(), "Invert");
                         ui.selectable_value(&mut self.mode, "bloom".to_string(), "Bloom");
+                        ui.selectable_value(&mut self.mode, "pulse".to_string(), "Pulse");
+                        ui.selectable_value(&mut self.mode, "jiggle".to_string(), "Jiggle");
+                        ui.selectable_value(&mut self.mode, "overlap".to_string(), "Overlap");
                     });
             });
 

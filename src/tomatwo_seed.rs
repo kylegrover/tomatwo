@@ -35,48 +35,6 @@ pub enum FrameType {
     Void,
 }
 
-pub fn bstream_until_marker(input: &PathBuf, output: &PathBuf, marker: Option<&[u8]>, startpos: usize) -> io::Result<usize> {
-    let input_file = File::open(input)?;
-    let mut output_file = File::create(output)?;
-    let mmap = unsafe { MmapOptions::new().offset(startpos as u64).map(&input_file)? };
-
-    if let Some(marker) = marker {
-        if let Some(pos) = mmap.windows(marker.len()).position(|window| window == marker) {
-            output_file.write_all(&mmap[..pos])?;
-            return Ok(startpos + pos);
-        }
-    }
-
-    output_file.write_all(&mmap)?;
-    Ok(startpos + mmap.len())
-}
-
-pub fn build_frame_table(temp_movi: &PathBuf, include_audio: bool) -> io::Result<Vec<Frame>> {
-    let file = File::open(temp_movi)?;
-    let mmap = unsafe { Mmap::map(&file)? };
-
-    let mut frame_table: Vec<Frame> = mmap.par_windows(4)
-        .enumerate()
-        .filter_map(|(i, window)| {
-            match window {
-                b"00dc" => Some(Frame { offset: i, size: 0, frame_type: FrameType::Video }),
-                b"01wb" if include_audio => Some(Frame { offset: i, size: 0, frame_type: FrameType::Audio }),
-                _ => None,
-            }
-        })
-        .collect();
-
-    for i in 0..frame_table.len() {
-        frame_table[i].size = if i + 1 < frame_table.len() {
-            frame_table[i + 1].offset - frame_table[i].offset
-        } else {
-            mmap.len() - frame_table[i].offset
-        };
-    }
-
-    Ok(frame_table)
-}
-
 pub fn process_frames(clean_frames: &[Frame], opt: &Opt) -> Vec<Frame> {
     match opt.mode.as_str() {
         "void" => clean_frames.to_vec(),
@@ -126,6 +84,48 @@ pub fn process_frames(clean_frames: &[Frame], opt: &Opt) -> Vec<Frame> {
             clean_frames.to_vec()
         }
     }
+}
+
+pub fn bstream_until_marker(input: &PathBuf, output: &PathBuf, marker: Option<&[u8]>, startpos: usize) -> io::Result<usize> {
+    let input_file = File::open(input)?;
+    let mut output_file = File::create(output)?;
+    let mmap = unsafe { MmapOptions::new().offset(startpos as u64).map(&input_file)? };
+
+    if let Some(marker) = marker {
+        if let Some(pos) = mmap.windows(marker.len()).position(|window| window == marker) {
+            output_file.write_all(&mmap[..pos])?;
+            return Ok(startpos + pos);
+        }
+    }
+
+    output_file.write_all(&mmap)?;
+    Ok(startpos + mmap.len())
+}
+
+pub fn build_frame_table(temp_movi: &PathBuf, include_audio: bool) -> io::Result<Vec<Frame>> {
+    let file = File::open(temp_movi)?;
+    let mmap = unsafe { Mmap::map(&file)? };
+
+    let mut frame_table: Vec<Frame> = mmap.par_windows(4)
+        .enumerate()
+        .filter_map(|(i, window)| {
+            match window {
+                b"00dc" => Some(Frame { offset: i, size: 0, frame_type: FrameType::Video }),
+                b"01wb" if include_audio => Some(Frame { offset: i, size: 0, frame_type: FrameType::Audio }),
+                _ => None,
+            }
+        })
+        .collect();
+
+    for i in 0..frame_table.len() {
+        frame_table[i].size = if i + 1 < frame_table.len() {
+            frame_table[i + 1].offset - frame_table[i].offset
+        } else {
+            mmap.len() - frame_table[i].offset
+        };
+    }
+
+    Ok(frame_table)
 }
 
 pub fn assemble_output_file(fileout: &PathBuf, temp_hdrl: &PathBuf, temp_movi: &PathBuf, temp_idx1: &PathBuf, final_frames: &[Frame]) -> io::Result<()> {

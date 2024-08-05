@@ -4,7 +4,11 @@ use tokio::process::Command as TokioCommand;
 use tokio::task;
 
 pub fn ffmpeg_to_avi(input: &PathBuf, force: bool, &mut ref mut using_existing: &mut bool) -> Result<PathBuf, std::io::Error> {
-    let output = input.with_extension("avi");
+    // make subdir 🍅/ in same directory as file and output the file there
+    let file_name = input.file_name().unwrap_or_default();
+    let parent = input.parent().unwrap_or(std::path::Path::new("🍅"));
+    let output = parent.join("🍅").join(file_name).with_extension("avi");
+
     // check if the output file already exists
     if !force && output.exists() {
         println!("Output file already exists: {:?} using that", output);
@@ -14,6 +18,7 @@ pub fn ffmpeg_to_avi(input: &PathBuf, force: bool, &mut ref mut using_existing: 
 
     let input_str = input.to_str().unwrap();
     let output_str = output.to_str().unwrap();
+
 
     let status = Command::new("ffmpeg")
         .args(&[
