@@ -1,10 +1,9 @@
 use eframe::egui;
 use std::sync::mpsc::{channel};
 use std::thread;
-use super::models::{Gooey, ProcessState};
+use super::models::{Gooey, ProcessState, ProcessingStep};
 use super::video_processing::{ffmpeg_to_avi, spawn_try_ffplay, ffmpeg_to_mp4};
 use tomatwo_seed::{Opt, process_video, extract_frame_data};
-
 
 impl Gooey {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
@@ -13,52 +12,58 @@ impl Gooey {
             input_path: None,
             avi_path: None,
             saved_path: None,
-            mode: "void".to_string(),
-            count_frames: 30,
-            posit_frames: 30,
             using_existing: false,
-            kill: 1.0,
-            kill_rel: 0.15,
-            multiply: 1,
             frame_data: None,
             process_state: ProcessState::Idle,
             rx,
             tx,
+            processing_steps: Vec::new(),
+            selected_step: None,
         }
     }
 
     fn process_video(&self, preview: bool) {
-        let opt = Opt {
-            input: self.avi_path.clone().unwrap(),
-            mode: self.mode.clone(),
-            countframes: self.count_frames,
-            positframes: self.posit_frames,
-            audio: false,
-            firstframe: false,
-            kill: self.kill,
-            kill_rel: self.kill_rel * self.kill_rel, // exp slider
-            multiply: self.multiply,
-            preview,
-        };
-
         let tx = self.tx.clone();
-        
+        let avi_path = self.avi_path.clone().unwrap();
+        let steps = self.processing_steps.clone();
+    
         thread::spawn(move || {
             tx.send(ProcessState::Datamoshing).unwrap();
-            match process_video(&opt) {
-                Ok(output_path) => {
-                    if preview {
-                        tx.send(ProcessState::Idle).unwrap();
-                    } else {
-                        tx.send(ProcessState::Done(output_path)).unwrap();
+            let mut current_input = avi_path;
+    
+            for (i, step) in steps.iter().enumerate() {
+                let opt = Opt {
+                    input: current_input.clone(),
+                    mode: step.mode.clone(),
+                    countframes: step.count_frames,
+                    positframes: step.posit_frames,
+                    audio: false,
+                    firstframe: false,
+                    kill: step.kill,
+                    kill_rel: step.kill_rel * step.kill_rel, // exp slider
+                    multiply: step.multiply,
+                    preview: preview && i == steps.len() - 1, // Only preview on the last step
+                };
+    
+                match process_video(&opt) {
+                    Ok(output_path) => {
+                        if i == steps.len() - 1 {
+                            if preview {
+                                tx.send(ProcessState::Idle).unwrap();
+                            } else {
+                                tx.send(ProcessState::Done(output_path.clone())).unwrap();
+                            }
+                        }
+                        current_input = output_path;
                     }
-                }
-                Err(e) => {
-                    if preview && (e.kind() == std::io::ErrorKind::BrokenPipe) {
-                        tx.send(ProcessState::Idle).unwrap();
-                    } else {
-                        eprintln!("Error processing video: {:?}", e);
-                        tx.send(ProcessState::Error).unwrap();
+                    Err(e) => {
+                        if preview && (e.kind() == std::io::ErrorKind::BrokenPipe) {
+                            tx.send(ProcessState::Idle).unwrap();
+                        } else {
+                            eprintln!("Error processing video: {:?}", e);
+                            tx.send(ProcessState::Error).unwrap();
+                        }
+                        return;
                     }
                 }
             }
@@ -150,13 +155,17 @@ impl eframe::App for Gooey {
                 let bar_height = rect.height();
                 let bar_width = rect.width() / frame_data.len() as f32;
             
+                // Get the currently selected step, or use default values if no step is selected
+                let current_step = self.selected_step.and_then(|index| self.processing_steps.get(index));
+                let (kill, kill_rel) = current_step.map_or((1.0, 0.15), |step| (step.kill, step.kill_rel));
+            
                 for (i, frame) in frame_data.iter().enumerate() {
                     let x = rect.left() + i as f32 * bar_width;
                     let y = rect.bottom();
                     let height = (frame.size as f32 / *max_frame_size as f32) * rect.height();
-                    // let would_keep = (frame.size as f32) <= (*max_frame_size as f32 * self.kill);
-                    // also account for kill_rel using frame.rel_size
-                    let would_keep = frame.rel_size <= self.kill_rel + 1.0;
+                    
+                    // Use the current step's kill and kill_rel values
+                    let would_keep = frame.rel_size <= kill_rel + 1.0;
             
                     let color = if would_keep {
                         egui::Color32::WHITE
@@ -170,10 +179,12 @@ impl eframe::App for Gooey {
                         color,
                     );
                 }
-                painter.line_segment( // kill line
+                
+                // Draw kill line using the current step's kill value
+                painter.line_segment(
                     [
-                        egui::pos2(rect.left(),  rect.top() + bar_height * (1.0 - self.kill)),
-                        egui::pos2(rect.right(), rect.top() + bar_height * (1.0 - self.kill))
+                        egui::pos2(rect.left(),  rect.top() + bar_height * (1.0 - kill)),
+                        egui::pos2(rect.right(), rect.top() + bar_height * (1.0 - kill))
                     ],
                     egui::Stroke::new(1.0, egui::Color32::WHITE)
                 );
@@ -181,7 +192,10 @@ impl eframe::App for Gooey {
                 ui.label("White: Frames that would be kept");
                 ui.label("Red: Frames that would be removed");
                 ui.label(format!("Total video frames: {}", frame_data.len()));
-                ui.label(format!("Frames that would be kept: {}", frame_data.iter().filter(|f| (f.size as f32) <= (*max_frame_size as f32 * self.kill)).count()));
+                
+                // Calculate frames kept using the current step's kill value
+                let frames_kept = frame_data.iter().filter(|f| (f.size as f32) <= (*max_frame_size as f32 * kill)).count();
+                ui.label(format!("Frames that would be kept: {}", frames_kept));
             
                 let hover_pos = ui.input(|i| i.pointer.hover_pos());
                 if let Some(pos) = hover_pos {
@@ -194,29 +208,68 @@ impl eframe::App for Gooey {
                         }
                     }
                 }
+            
+                // Display which step is being visualized
+                if let Some(step_index) = self.selected_step {
+                    ui.label(format!("Visualizing Step {}", step_index + 1));
+                } else {
+                    ui.label("No step selected. Showing default values.");
+                }
+            }
+            ui.heading("Processing Steps");
+            
+            // Add new step button
+            if ui.button("Add Step").clicked() {
+                self.processing_steps.push(ProcessingStep::default());
+                self.selected_step = Some(self.processing_steps.len() - 1);
             }
 
-            ui.horizontal(|ui| {
-                ui.label("Mode:");
-                egui::ComboBox::from_label("Mode")
-                    .selected_text(&self.mode)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.mode, "void".to_string(), "Void");
-                        ui.selectable_value(&mut self.mode, "random".to_string(), "Random");
-                        ui.selectable_value(&mut self.mode, "reverse".to_string(), "Reverse");
-                        ui.selectable_value(&mut self.mode, "invert".to_string(), "Invert");
-                        ui.selectable_value(&mut self.mode, "bloom".to_string(), "Bloom");
-                        ui.selectable_value(&mut self.mode, "pulse".to_string(), "Pulse");
-                        ui.selectable_value(&mut self.mode, "jiggle".to_string(), "Jiggle");
-                        ui.selectable_value(&mut self.mode, "overlap".to_string(), "Overlap");
-                    });
-            });
+            // List of existing steps
+            // Collect indices of steps to remove to avoid modifying the vector while iterating
+            let mut indices_to_remove = Vec::new();
+            for (index, step) in self.processing_steps.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(self.selected_step == Some(index), format!("Step {}: {}", index + 1, step.mode)).clicked() {
+                        self.selected_step = Some(index);
+                    }
+                    if ui.button("Remove").clicked() {
+                        indices_to_remove.push(index);
+                        if self.selected_step == Some(index) {
+                            self.selected_step = None;
+                        }
+                    }
+                });
+            }            
+            // Remove steps in reverse order to maintain correct indices
+            for &index in indices_to_remove.iter().rev() {
+                self.processing_steps.remove(index);
+            }
 
-            ui.add(egui::Slider::new(&mut self.count_frames, 1..=100).text("Count Frames"));
-            ui.add(egui::Slider::new(&mut self.posit_frames, 1..=100).text("Position Frames"));
-            ui.add(egui::Slider::new(&mut self.kill, 0.0..=1.0).text("Kill Threshold"));
-            ui.add(egui::Slider::new(&mut self.kill_rel, -0.1..=10.0).text("Kill Relative"));
-            ui.add(egui::Slider::new(&mut self.multiply, 1..=10).text("Multiply"));
+            // Edit selected step
+            if let Some(selected) = self.selected_step {
+                let step = &mut self.processing_steps[selected];
+                ui.heading(format!("Edit Step {}", selected + 1));
+                
+                egui::ComboBox::from_label("Mode")
+                    .selected_text(&step.mode)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut step.mode, "void".to_string(), "Void");
+                        ui.selectable_value(&mut step.mode, "random".to_string(), "Random");
+                        ui.selectable_value(&mut step.mode, "reverse".to_string(), "Reverse");
+                        ui.selectable_value(&mut step.mode, "invert".to_string(), "Invert");
+                        ui.selectable_value(&mut step.mode, "bloom".to_string(), "Bloom");
+                        ui.selectable_value(&mut step.mode, "pulse".to_string(), "Pulse");
+                        ui.selectable_value(&mut step.mode, "jiggle".to_string(), "Jiggle");
+                        ui.selectable_value(&mut step.mode, "overlap".to_string(), "Overlap");
+                    });
+
+                ui.add(egui::Slider::new(&mut step.count_frames, 1..=100).text("Count Frames"));
+                ui.add(egui::Slider::new(&mut step.posit_frames, 1..=100).text("Position Frames"));
+                ui.add(egui::Slider::new(&mut step.kill, 0.0..=1.0).text("Kill Threshold"));
+                ui.add(egui::Slider::new(&mut step.kill_rel, -0.1..=10.0).text("Kill Relative"));
+                ui.add(egui::Slider::new(&mut step.multiply, 1..=10).text("Multiply"));
+            }
+
 
             if self.avi_path.is_some() {
                 if ui.button("Taste it").clicked()
