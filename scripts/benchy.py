@@ -30,28 +30,38 @@ def run_tests(command, name):
         time_taken = measure_time(command)
         if time_taken is not None:
             times.append(time_taken)
-        print(f"  Run {i+1}: {'.' * int(time_taken * 100)} {time_taken:.4f}s")
+        print(f"  Run {i+1}: {time_taken:.4f}s")
     print(f"{name} completed {len(times)} runs.\n")
     return times
 
-def print_statistics(name, times):
-    if times:
-        avg = statistics.mean(times)
-        min_time = min(times)
-        max_time = max(times)
-        std_dev = statistics.stdev(times)
-        
-        print(f"{name} timings (seconds):")
-        print(f"  Average: {avg:.6f}")
-        print(f"  Min:     {min_time:.6f}")
-        print(f"  Max:     {max_time:.6f}")
-        print(f"  Std Dev: {std_dev:.6f}")
-        
-        # Simple ASCII visualization
-        print("\n  Distribution:")
-        for t in times:
-            print(f"  {'|' * int((t - min_time) / (max_time - min_time) * 20):20s} {t:.6f}")
-        print()
+def print_statistics(rust_times, python_times):
+    if not rust_times or not python_times:
+        return
+
+    rust_avg = statistics.mean(rust_times)
+    rust_min = min(rust_times)
+    rust_max = max(rust_times)
+    python_avg = statistics.mean(python_times)
+    python_min = min(python_times)
+    python_max = max(python_times)
+
+    max_time = max(rust_max, python_max)
+    scale = 40 / max_time  # Scale factor for 40 character width
+
+    print("Comparative Timings (seconds):")
+
+    def print_bar(name, rust_val, python_val):
+        rust_bar = int(rust_val * scale)
+        python_bar = int(python_val * scale)
+        print(f"{name:<7}");
+        # print(f"   {'█' * rust_bar:<40} {rust_val:.6f}")
+        # print(f"           {'█' * python_bar:<40} {python_val:.6f}")
+        print(f"Rust:    {'❙' * rust_bar:<40} {rust_val:.6f}")   
+        print(f"Python:  {'❙' * python_bar:<40} {python_val:.6f}")
+
+    print_bar("Average", rust_avg, python_avg)
+    print_bar("Min", rust_min, python_min)
+    print_bar("Max", rust_max, python_max)
 
 def compare_results(rust_times, python_times):
     if rust_times and python_times:
@@ -68,9 +78,8 @@ python_command = [sys.executable, PYTHON_SCRIPT, "--input", INPUT_FILE]
 rust_times = run_tests(rust_command, "Rust CLI tool")
 python_times = run_tests(python_command, "Python script")
 
-# Print statistics
-print_statistics("Rust", rust_times)
-print_statistics("Python", python_times)
+# Print statistics with visualization
+print_statistics(rust_times, python_times)
 
 # Compare results
 compare_results(rust_times, python_times)
