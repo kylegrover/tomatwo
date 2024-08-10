@@ -3,14 +3,44 @@ import time
 import statistics
 import os
 import sys
+import argparse
 
-# Number of iterations
-NUM_ITERATIONS = 10
 
-# Paths to executables and input file
-RUST_EXECUTABLE = os.path.join("release", "windows", "tomatwo.exe")
-PYTHON_SCRIPT = os.path.join("tomato-py", "tomato.py")
-INPUT_FILE = "food-test.avi"
+# Default values
+DEFAULT_ITERATIONS = 10
+DEFAULT_RUST_EXECUTABLE = os.path.join("release", "windows", "tomatwo.exe")
+DEFAULT_PYTHON_SCRIPT = os.path.join("tomato-py", "tomato.py")
+DEFAULT_INPUT_FILE = "food-test.avi"
+
+parser = argparse.ArgumentParser(description="Benchmark Rust and Python implementations")
+parser.add_argument("-i", "--input", default=DEFAULT_INPUT_FILE, help="Path to the input video file (default: %(default)s)")
+parser.add_argument("-n", "--iterations", type=int, default=DEFAULT_ITERATIONS, help="Number of iterations (default: %(default)s)")
+parser.add_argument("-r", "--rust", default=DEFAULT_RUST_EXECUTABLE, help="Path to Rust executable (default: %(default)s)")
+parser.add_argument("-p", "--python", default=DEFAULT_PYTHON_SCRIPT, help="Path to Python script (default: %(default)s)")
+args = parser.parse_args()
+
+# Check if input file exists
+if not os.path.isfile(args.input):
+    print(f"Error: Input file '{args.input}' does not exist.")
+    sys.exit(1)
+
+# Check if Rust executable exists
+if not os.path.isfile(args.rust):
+    print(f"Error: Rust executable '{args.rust}' does not exist.")
+    sys.exit(1)
+
+# Check if Python script exists
+if not os.path.isfile(args.python):
+    print(f"Error: Python script '{args.python}' does not exist.")
+    sys.exit(1)
+
+# Use the arguments in your script
+NUM_ITERATIONS = args.iterations
+RUST_EXECUTABLE = args.rust
+PYTHON_SCRIPT = args.python
+INPUT_FILE = args.input
+
+
 
 def measure_time(command):
     start_time = time.time()
