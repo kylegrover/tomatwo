@@ -24,6 +24,24 @@ pub struct Gooey {
     pub selected_step: Option<usize>,
 }
 
+impl Default for Gooey {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Gooey {
+            input_path: None,
+            avi_path: None,
+            saved_path: None,
+            using_existing: false,
+            frame_data: None,
+            process_state: ProcessState::Idle,
+            rx,
+            tx,
+            processing_steps: vec![ProcessingStep::default()],
+            selected_step: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ProcessingStep {
     pub mode: String,
