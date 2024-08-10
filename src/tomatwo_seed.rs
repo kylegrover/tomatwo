@@ -216,44 +216,37 @@ pub fn process_video(opt: &Opt) -> io::Result<PathBuf> {
     } 
 }
 
-pub fn preview_output(temp_hdrl: &PathBuf, temp_movi: &PathBuf, temp_idx1: &PathBuf, final_frames: Arc<Mutex<Vec<Frame>>>, restart_signal: Receiver<bool>) -> io::Result<()> {
+pub fn preview_output(temp_hdrl: &PathBuf, temp_movi: &PathBuf, temp_idx1: &PathBuf, final_frames: &[Frame]) -> io::Result<()> {
     let mut ffplay = Command::new("ffplay")
         .args(&["-f", "avi", "-i", "-"])  // Read from stdin
         .stdin(Stdio::piped())
         .spawn()?;
 
     let mut ffplay_stdin = ffplay.stdin.take().expect("Failed to open ffplay stdin");
+
+    // Write HDRL
     io::copy(&mut File::open(temp_hdrl)?, &mut ffplay_stdin)?;
 
     // Write MOVI header
     ffplay_stdin.write_all(b"movi")?;
 
+    // Write frames
     let movi_file = File::open(temp_movi)?;
     let mmap = unsafe { Mmap::map(&movi_file)? };
 
-    loop {
-        // Poll the restart signal to check if we need to restart
-        if restart_signal.try_recv().is_ok() {
-            // Reset to the beginning of the frame data stream
-            // (Could just send the full data from the beginning again)
-            ffplay_stdin.write_all(b"movi")?;
-            for frame in final_frames.lock().unwrap().iter() {
-                ffplay_stdin.write_all(&mmap[frame.offset..frame.offset + frame.size])?;
-            }
-            // Optionally, you could add a small delay here to ensure smooth transition
-            continue;
-        }
-        
-        // Write frames to ffplay
-        for frame in final_frames.lock().unwrap().iter() {
-            ffplay_stdin.write_all(&mmap[frame.offset..frame.offset + frame.size])?;
-        }
+    for frame in final_frames {
+        ffplay_stdin.write_all(&mmap[frame.offset..frame.offset + frame.size])?;
     }
+
+    // Write IDX1
+    io::copy(&mut File::open(temp_idx1)?, &mut ffplay_stdin)?;
 
     // Close stdin to signal end of input
     drop(ffplay_stdin);
+
+    // Wait for ffplay to finish
     ffplay.wait()?;
-    
+
     Ok(())
 }
 
