@@ -18,6 +18,8 @@ pub struct Opt {
     pub audio: bool,
     pub firstframe: bool,
     pub kill: f32,
+    pub multiply: i32,
+    pub kill_rel: f32,
     pub preview: bool,
 }
 
@@ -25,6 +27,7 @@ pub struct Opt {
 pub struct Frame {
     pub offset: usize,
     pub size: usize,
+    pub rel_size: f32,
     pub frame_type: FrameType,
 }
 
@@ -110,21 +113,21 @@ pub fn build_frame_table(temp_movi: &PathBuf, include_audio: bool) -> io::Result
         .enumerate()
         .filter_map(|(i, window)| {
             match window {
-                b"00dc" => Some(Frame { offset: i, size: 0, frame_type: FrameType::Video }),
-                b"01wb" if include_audio => Some(Frame { offset: i, size: 0, frame_type: FrameType::Audio }),
+                b"00dc" => Some(Frame { offset: i, size: 0, rel_size: 0.0, frame_type: FrameType::Video }),
+                b"01wb" if include_audio => Some(Frame { offset: i, size: 0, rel_size: 0.0, frame_type: FrameType::Audio }),
                 _ => None,
             }
         })
         .collect();
 
-    let frame_table = frame_table.into_iter().enumerate().map(|(index, mut frame)| {
-        frame.size = if index + 1 < frame_table.len() {
-            frame_table[index + 1].offset - frame.offset
+    let mut frame_table: Vec<Frame> = frame_table;
+    for i in 0..frame_table.len() {
+        frame_table[i].size = if i + 1 < frame_table.len() {
+            frame_table[i + 1].offset - frame_table[i].offset
         } else {
-            mmap.len() - frame.offset
+            mmap.len() - frame_table[i].offset
         };
-        frame
-    }).collect();
+    }
 
     Ok(frame_table)
 }
@@ -162,71 +165,138 @@ pub fn process_video(opt: &Opt) -> io::Result<PathBuf> {
 
     let mut clean_frames = Vec::new();
     let max_frame_size = frame_table.iter().map(|f| f.size).max().unwrap_or(0);
+    let mut prev_frame_size = 0;
 
+    // keep first video frame or not
     if opt.firstframe {
         if let Some(first_video_frame) = frame_table.iter().find(|f| f.frame_type == FrameType::Video) {
             clean_frames.push(first_video_frame.clone());
+            prev_frame_size = first_video_frame.size;
         }
     }
 
+    // clean the list by killing "big" frames and frames with large relative size increases
     for frame in &frame_table {
-        if frame.size as f32 <= (max_frame_size as f32 * opt.kill) {
+        let keep_frame = frame.size as f32 <= (max_frame_size as f32 * opt.kill) &&
+                         (frame.size as f32 <= prev_frame_size as f32 * (1.0 + opt.kill_rel));
+
+        if keep_frame {
             clean_frames.push(frame.clone());
         }
+        prev_frame_size = frame.size;
     }
 
-    let final_frames = process_frames(&clean_frames, &opt);
+    let mut final_frames = process_frames(&clean_frames, &opt);
 
-    println!("> Processing complete, writing output file... {:.2?}", timer.elapsed());
-
-    let cname = if opt.countframes > 1 { format!("-c{}", opt.countframes) } else { String::new() };
-    let pname = if opt.positframes > 1 { format!("-n{}", opt.positframes) } else { String::new() };
-    let fileout = opt.input.with_file_name(format!("{}-{}{}{}.avi", 
-        opt.input.file_stem().unwrap().to_str().unwrap(), 
-        opt.mode, cname, pname));
+    if opt.multiply > 1 {
+        let mut new_frames = Vec::new();
+        for frame in final_frames {
+            for _ in 0..opt.multiply {
+                new_frames.push(frame.clone());
+            }
+        }
+        final_frames = new_frames;
+    }
 
     if opt.preview {
         preview_output(&temp_hdrl, &temp_movi, &temp_idx1, &final_frames)?;
+        Ok(PathBuf::new())
     } else {
+        println!("> Processing complete, writing output file... {:.2?}", timer.elapsed());
+    
+        let cname = if opt.countframes > 1 { format!("-c{}", opt.countframes) } else { String::new() };
+        let pname = if opt.positframes > 1 { format!("-n{}", opt.positframes) } else { String::new() };
+        let fileout = opt.input.with_file_name(format!("{}-{}{}{}.avi", 
+            opt.input.file_stem().unwrap().to_str().unwrap(), 
+            opt.mode, cname, pname));
         assemble_output_file(&fileout, &temp_hdrl, &temp_movi, &temp_idx1, &final_frames)?;
+        println!("> Done! Output file: {:?}", fileout);
+        println!("> Total time: {:.2?}", timer.elapsed());
+        Ok(fileout)
     } 
-
-    println!("> Done! Output file: {:?}", fileout);
-    println!("> Total time: {:.2?}", timer.elapsed());
-
-    Ok(fileout)
 }
 
-pub fn preview_output(temp_hdrl: &PathBuf, temp_movi: &PathBuf, temp_idx1: &PathBuf, final_frames: &[Frame]) -> io::Result<()> {
+pub fn preview_output(temp_hdrl: &PathBuf, temp_movi: &PathBuf, temp_idx1: &PathBuf, final_frames: Arc<Mutex<Vec<Frame>>>, restart_signal: Receiver<bool>) -> io::Result<()> {
     let mut ffplay = Command::new("ffplay")
         .args(&["-f", "avi", "-i", "-"])  // Read from stdin
         .stdin(Stdio::piped())
         .spawn()?;
 
     let mut ffplay_stdin = ffplay.stdin.take().expect("Failed to open ffplay stdin");
-
-    // Write HDRL
     io::copy(&mut File::open(temp_hdrl)?, &mut ffplay_stdin)?;
 
     // Write MOVI header
     ffplay_stdin.write_all(b"movi")?;
 
-    // Write frames
     let movi_file = File::open(temp_movi)?;
     let mmap = unsafe { Mmap::map(&movi_file)? };
 
-    for frame in final_frames {
-        ffplay_stdin.write_all(&mmap[frame.offset..frame.offset + frame.size])?;
+    loop {
+        // Poll the restart signal to check if we need to restart
+        if restart_signal.try_recv().is_ok() {
+            // Reset to the beginning of the frame data stream
+            // (Could just send the full data from the beginning again)
+            ffplay_stdin.write_all(b"movi")?;
+            for frame in final_frames.lock().unwrap().iter() {
+                ffplay_stdin.write_all(&mmap[frame.offset..frame.offset + frame.size])?;
+            }
+            // Optionally, you could add a small delay here to ensure smooth transition
+            continue;
+        }
+        
+        // Write frames to ffplay
+        for frame in final_frames.lock().unwrap().iter() {
+            ffplay_stdin.write_all(&mmap[frame.offset..frame.offset + frame.size])?;
+        }
     }
-
-    // Write IDX1
-    io::copy(&mut File::open(temp_idx1)?, &mut ffplay_stdin)?;
 
     // Close stdin to signal end of input
     drop(ffplay_stdin);
-
-    // Wait for ffplay to finish
     ffplay.wait()?;
-
+    
     Ok(())
+}
+
+pub fn extract_frame_data(avi_path: &PathBuf) -> io::Result<(Vec<Frame>, usize)> {
+    let file = File::open(avi_path)?;
+    let mmap = unsafe { Mmap::map(&file)? };
+
+    let movi_marker = b"movi";
+    let idx1_marker = b"idx1";
+
+    if let (Some(movi_start), Some(idx1_start)) = (
+        mmap.windows(movi_marker.len()).position(|window| window == movi_marker),
+        mmap.windows(idx1_marker.len()).position(|window| window == idx1_marker)
+    ) {
+        let movi_data = &mmap[movi_start..idx1_start];
+
+        let frame_table: Vec<Frame> = movi_data.par_windows(4)
+            .enumerate()
+            .filter_map(|(i, window)| {
+                if window == b"00dc" {
+                    Some(Frame { offset: movi_start + i, size: 0, rel_size: 0.0, frame_type: FrameType::Video })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut last_frame_size = 0;
+        let mut frame_table = frame_table;
+        for i in 0..frame_table.len() {
+            if i + 1 < frame_table.len() {
+                frame_table[i].size = frame_table[i + 1].offset - frame_table[i].offset - 8; // Subtract 8 for chunk header
+                frame_table[i].rel_size = frame_table[i].size as f32 / last_frame_size as f32;
+                last_frame_size = frame_table[i].size;
+            } else {
+                frame_table[i].size = idx1_start - frame_table[i].offset - 8; // Use idx1_start as the end of movi data
+            };
+        }
+
+        let max_frame_size = frame_table.iter().map(|f| f.size).max().unwrap_or(0);
+
+        Ok((frame_table, max_frame_size))
+    } else {
+        Err(io::Error::new(io::ErrorKind::InvalidData, "Could not find 'movi' or 'idx1' marker in AVI file"))
+    }
 }

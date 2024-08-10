@@ -1,9 +1,9 @@
 use eframe::egui;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel};
 use std::thread;
 use super::models::{Gooey, ProcessState};
 use super::video_processing::{ffmpeg_to_avi, spawn_try_ffplay, ffmpeg_to_mp4};
-use tomatwo_seed::{Opt, process_video};
+use tomatwo_seed::{Opt, process_video, extract_frame_data};
 
 
 impl Gooey {
@@ -14,10 +14,13 @@ impl Gooey {
             avi_path: None,
             saved_path: None,
             mode: "void".to_string(),
-            count_frames: 1,
-            posit_frames: 1,
+            count_frames: 30,
+            posit_frames: 30,
             using_existing: false,
-            kill: 0.7,
+            kill: 1.0,
+            kill_rel: 0.15,
+            multiply: 1,
+            frame_data: None,
             process_state: ProcessState::Idle,
             rx,
             tx,
@@ -33,6 +36,8 @@ impl Gooey {
             audio: false,
             firstframe: false,
             kill: self.kill,
+            kill_rel: self.kill_rel * self.kill_rel, // exp slider
+            multiply: self.multiply,
             preview,
         };
 
@@ -42,14 +47,36 @@ impl Gooey {
             tx.send(ProcessState::Datamoshing).unwrap();
             match process_video(&opt) {
                 Ok(output_path) => {
-                    tx.send(ProcessState::Done(output_path)).unwrap();
+                    if preview {
+                        tx.send(ProcessState::Idle).unwrap();
+                    } else {
+                        tx.send(ProcessState::Done(output_path)).unwrap();
+                    }
                 }
                 Err(e) => {
-                    eprintln!("Error processing video: {:?}", e);
-                    tx.send(ProcessState::Error).unwrap();
+                    if preview && (e.kind() == std::io::ErrorKind::BrokenPipe) {
+                        tx.send(ProcessState::Idle).unwrap();
+                    } else {
+                        eprintln!("Error processing video: {:?}", e);
+                        tx.send(ProcessState::Error).unwrap();
+                    }
                 }
             }
         });
+    }
+
+    fn extract_frame_data(&mut self) {
+        if let Some(avi_path) = &self.avi_path {
+            match extract_frame_data(avi_path) {
+                Ok((frames, max_size)) => {
+                    self.frame_data = Some((frames, max_size));
+                },
+                Err(e) => {
+                    eprintln!("Error extracting frame data: {:?}", e);
+                    self.frame_data = None;
+                }
+            }
+        }
     }
 }
 
@@ -108,6 +135,66 @@ impl eframe::App for Gooey {
                 }
             }
             
+            if self.avi_path.is_some() {
+                self.extract_frame_data();
+            }
+
+            if let Some((frame_data, max_frame_size)) = &self.frame_data {
+                ui.label("Video Frame Data:");
+                // Allocate a specific size for the visualization
+                let available_width = ui.available_width();
+                let viz_height = 100.0; // Adjust this value as needed
+                let (response, painter) = ui.allocate_painter(egui::vec2(available_width, viz_height), egui::Sense::hover());
+                let rect = response.rect;
+            
+                let bar_height = rect.height();
+                let bar_width = rect.width() / frame_data.len() as f32;
+            
+                for (i, frame) in frame_data.iter().enumerate() {
+                    let x = rect.left() + i as f32 * bar_width;
+                    let y = rect.bottom();
+                    let height = (frame.size as f32 / *max_frame_size as f32) * rect.height();
+                    // let would_keep = (frame.size as f32) <= (*max_frame_size as f32 * self.kill);
+                    // also account for kill_rel using frame.rel_size
+                    let would_keep = frame.rel_size <= self.kill_rel + 1.0;
+            
+                    let color = if would_keep {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::from_rgb(255, 0, 0)
+                    };
+            
+                    painter.rect_filled(
+                        egui::Rect::from_min_max(egui::pos2(x, y - height), egui::pos2(x + bar_width, y)),
+                        0.0,
+                        color,
+                    );
+                }
+                painter.line_segment( // kill line
+                    [
+                        egui::pos2(rect.left(),  rect.top() + bar_height * (1.0 - self.kill)),
+                        egui::pos2(rect.right(), rect.top() + bar_height * (1.0 - self.kill))
+                    ],
+                    egui::Stroke::new(1.0, egui::Color32::WHITE)
+                );
+            
+                ui.label("White: Frames that would be kept");
+                ui.label("Red: Frames that would be removed");
+                ui.label(format!("Total video frames: {}", frame_data.len()));
+                ui.label(format!("Frames that would be kept: {}", frame_data.iter().filter(|f| (f.size as f32) <= (*max_frame_size as f32 * self.kill)).count()));
+            
+                let hover_pos = ui.input(|i| i.pointer.hover_pos());
+                if let Some(pos) = hover_pos {
+                    if rect.contains(pos) {
+                        let index = ((pos.x - rect.left()) / bar_width) as usize;
+                        if index < frame_data.len() {
+                            let frame = &frame_data[index];
+                            let text = format!("Frame {}: Size {} bytes", index, frame.size);
+                            painter.text(pos, egui::Align2::LEFT_BOTTOM, text, egui::TextStyle::Body.resolve(&ui.style()), ui.visuals().text_color());
+                        }
+                    }
+                }
+            }
 
             ui.horizontal(|ui| {
                 ui.label("Mode:");
@@ -128,6 +215,8 @@ impl eframe::App for Gooey {
             ui.add(egui::Slider::new(&mut self.count_frames, 1..=100).text("Count Frames"));
             ui.add(egui::Slider::new(&mut self.posit_frames, 1..=100).text("Position Frames"));
             ui.add(egui::Slider::new(&mut self.kill, 0.0..=1.0).text("Kill Threshold"));
+            ui.add(egui::Slider::new(&mut self.kill_rel, -0.1..=10.0).text("Kill Relative"));
+            ui.add(egui::Slider::new(&mut self.multiply, 1..=10).text("Multiply"));
 
             if self.avi_path.is_some() {
                 if ui.button("Taste it").clicked()

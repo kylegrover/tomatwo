@@ -5,6 +5,9 @@ use std::path::PathBuf;
 mod tomatwo_seed;
 use tomatwo_seed::{Opt as LibOpt, process_video};
 
+use std::io;
+use std::io::ErrorKind;
+
 #[derive(StructOpt, Debug)]
 #[structopt(name = "tomato")]
 struct Opt {
@@ -22,6 +25,10 @@ struct Opt {
     firstframe: bool,
     #[structopt(short, default_value = "0.7")]
     kill: f32,
+    #[structopt(short, default_value = "0.15")]
+    kill_rel: f32,
+    #[structopt(short, default_value = "1")]
+    multiply: i32,
     #[structopt(short)]
     preview: bool
 }
@@ -36,7 +43,7 @@ fn main() -> std::io::Result<()> {
     | __/   \| '_ ` _ \ / _` | __/\ /\ / /   \ 
     | || 🍅 |  | | | | | (_| | |_\ '  ' / 🍅 |
      \__\___/|_| |_| |_|\__,_|\__\\_/\_/ \___/ 
-    v2.-1 last update 21.03.2020
+    v2.-09 last update 2024-08-08
     \\ Audio Video Interleave breaker
     
     glitch tool made with love for the glitch art community <3
@@ -51,7 +58,7 @@ fn main() -> std::io::Result<()> {
     ___________________________________
     "#);
 
-    let lib_opt = LibOpt {
+    let mut lib_opt = LibOpt {
         input: opt.input,
         mode: opt.mode,
         countframes: opt.countframes,
@@ -59,15 +66,33 @@ fn main() -> std::io::Result<()> {
         audio: opt.audio,
         firstframe: opt.firstframe,
         kill: opt.kill,
+        kill_rel: opt.kill_rel,
+        multiply: opt.multiply,
         preview: opt.preview
     };
 
-    let timer = std::time::Instant::now();
+    // check if input exists and is an avi file
+    if !lib_opt.input.exists() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "Input file not found"));
+    }
+    if lib_opt.input.extension().unwrap_or_default() != "avi" {
+        // default prep with ffmpeg
+        println!("> Input file is not an avi file. Attempting to transcode with default ffmpeg settings...");
+        // replace extension with avi
+        let file_name = format!("{}.avi", lib_opt.input.file_stem().unwrap_or_default().to_str().unwrap_or_default());
+        let ffmpeg = std::process::Command::new("ffmpeg")
+            .args(&["-i", lib_opt.input.to_str().unwrap(), "-f", "avi", "-pix_fmt", "yuv420p", "-y", &file_name])
+            .output()?;
+        if !ffmpeg.status.success() {
+            return Err(io::Error::new(ErrorKind::Other, "FFmpeg failed to transcode input file"));
+        }
+        println!("> Transcoding successful: {}", file_name);
+        lib_opt.input = PathBuf::from(file_name);
+    }
+
 
     println!("> Processing video...");
     let output_path = process_video(&lib_opt)?;
-    println!("> Done! Output file: {:?}", output_path);
-    println!("> Total time: {:.2?}", timer.elapsed());
 
     Ok(())
 }
