@@ -1,6 +1,6 @@
 // tomatwo.rs
 
-use structopt::StructOpt;
+use clap::Parser;
 use std::path::PathBuf;
 mod tomatwo_seed;
 use tomatwo_seed::{Opt as LibOpt, process_video};
@@ -8,33 +8,42 @@ use tomatwo_seed::{Opt as LibOpt, process_video};
 use std::io;
 use std::io::ErrorKind;
 
-#[derive(StructOpt, Debug)]
-#[structopt(name = "tomato")]
+#[derive(Parser, Debug)]
+#[command(name = "tomato")]
 struct Opt {
-    #[structopt(short, long, parse(from_os_str))]
+    #[arg(short, long)]
     input: PathBuf,
-    #[structopt(short, long, default_value = "void")]
+    
+    #[arg(short, long, default_value = "void")]
     mode: String,
-    #[structopt(short, default_value = "1")]
+    
+    #[arg(short, default_value_t = 1)]
     countframes: usize,
-    #[structopt(short, default_value = "1")]
+    
+    #[arg(short, default_value_t = 1)]
     positframes: usize,
-    #[structopt(short)]
+    
+    #[arg(short)]
     audio: bool,
-    #[structopt(long)]
+    
+    #[arg(long)]
     firstframe: bool,
-    #[structopt(short, default_value = "0.7")]
+    
+    #[arg(short, default_value_t = 0.7)]
     kill: f32,
-    #[structopt(short, default_value = "0.15")]
+    
+    #[arg(short, default_value_t = 0.15)]
     kill_rel: f32,
-    #[structopt(short, default_value = "1")]
+    
+    #[arg(short, default_value_t = 1)]
     multiply: i32,
-    #[structopt(short)]
+    
+    #[arg(short)]
     preview: bool
 }
 
 fn main() -> std::io::Result<()> {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     
     println!(r#"
     tomatwo - ufffd's rusty n dusty tomato fork
@@ -89,7 +98,6 @@ fn main() -> std::io::Result<()> {
         println!("> Transcoding successful: {}", file_name);
         lib_opt.input = PathBuf::from(file_name);
     }
-
 
     println!("> Processing video...");
     let output_path = process_video(&lib_opt)?;
