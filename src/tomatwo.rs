@@ -43,7 +43,7 @@ fn main() -> std::io::Result<()> {
     | __/   \| '_ ` _ \ / _` | __/\ /\ / /   \ 
     | || 🍅 |  | | | | | (_| | |_\ '  ' / 🍅 |
      \__\___/|_| |_| |_|\__,_|\__\\_/\_/ \___/ 
-    v2.-09 last update 2024-08-08
+    v0.-1 last update 2024-08-10
     \\ Audio Video Interleave breaker
     
     glitch tool made with love for the glitch art community <3
