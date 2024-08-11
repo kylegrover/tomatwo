@@ -69,7 +69,12 @@ Comparison:
 - onnx https://github.com/microsoft/onnxruntime for inference?
     https://github.com/pykeio/ort
     "WASM only via emscripten (limitation of onnxruntime)"
-    
+- use video-rs for mp4 to avi and avi to mp4 if possible
+  - https://github.com/oddity-ai/video-rs
+  - not sure how it handles broken files
+- use egui-video for display instead of ffplay
+  - https://github.com/n00kii/egui-video
+  
 
 
 very us lynx
