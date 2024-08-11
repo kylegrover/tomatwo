@@ -1,13 +1,18 @@
 // tomatwo_lib.rs
 use std::process::{Command, Stdio};
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, Write, BufReader, BufWriter};
 use std::path::PathBuf;
-use rand::seq::SliceRandom;
 use memmap2::{Mmap, MmapOptions};
 use rayon::prelude::*;
 use tempfile;
 use rand::Rng;
+use rand::seq::SliceRandom;
+
+const MOVI_MARKER: &[u8] = b"movi";
+const IDX1_MARKER: &[u8] = b"idx1";
+const VIDEO_FRAME_MARKER: &[u8] = b"00dc";
+const AUDIO_FRAME_MARKER: &[u8] = b"01wb";
 
 #[derive(Clone, Debug)]
 pub struct Opt {
@@ -42,9 +47,8 @@ pub fn process_frames(clean_frames: &[Frame], opt: &Opt) -> (Vec<Frame>, Vec<usi
     let processed_frames = match opt.mode.as_str() {
         "void" => clean_frames.to_vec(),
         "random" => {
-            let mut rng = rand::thread_rng();
             let mut frames = clean_frames.to_vec();
-            frames.shuffle(&mut rng);
+            frames.shuffle(&mut rand::thread_rng());
             frames
         },
         "reverse" => clean_frames.iter().rev().cloned().collect(),
@@ -87,7 +91,7 @@ pub fn process_frames(clean_frames: &[Frame], opt: &Opt) -> (Vec<Frame>, Vec<usi
             clean_frames.to_vec()
         }
     };
-    let processed_sizes = processed_frames.iter().map(|f| f.size).collect();
+    let processed_sizes: Vec<usize> = processed_frames.iter().map(|f| f.size).collect();
     (processed_frames, processed_sizes)
 }
 
@@ -158,23 +162,24 @@ pub fn build_frame_table(temp_movi: &PathBuf, include_audio: bool) -> io::Result
     let file = File::open(temp_movi)?;
     let mmap = unsafe { Mmap::map(&file)? };
 
-    let frame_table: Vec<Frame> = mmap.par_windows(4)
+    let mut frame_table: Vec<Frame> = mmap.par_windows(4)
         .enumerate()
         .filter_map(|(i, window)| {
             match window {
-                b"00dc" => Some(Frame { offset: i, size: 0, rel_size: 0.0, frame_type: FrameType::Video }),
-                b"01wb" if include_audio => Some(Frame { offset: i, size: 0, rel_size: 0.0, frame_type: FrameType::Audio }),
+                VIDEO_FRAME_MARKER => Some(Frame { offset: i, size: 0, rel_size: 0.0, frame_type: FrameType::Video }),
+                AUDIO_FRAME_MARKER if include_audio => Some(Frame { offset: i, size: 0, rel_size: 0.0, frame_type: FrameType::Audio }),
                 _ => None,
             }
         })
         .collect();
 
-    let mut frame_table: Vec<Frame> = frame_table;
+    // Calculate frame sizes
+    let mmap_len = mmap.len();
     for i in 0..frame_table.len() {
         frame_table[i].size = if i + 1 < frame_table.len() {
             frame_table[i + 1].offset - frame_table[i].offset
         } else {
-            mmap.len() - frame_table[i].offset
+            mmap_len - frame_table[i].offset
         };
     }
 
@@ -182,11 +187,11 @@ pub fn build_frame_table(temp_movi: &PathBuf, include_audio: bool) -> io::Result
 }
 
 pub fn assemble_output_file(fileout: &PathBuf, temp_hdrl: &PathBuf, temp_movi: &PathBuf, temp_idx1: &PathBuf, final_frames: &[Frame]) -> io::Result<()> {
-    let mut output = File::create(fileout)?;
+    let mut output = BufWriter::new(File::create(fileout)?);
 
-    io::copy(&mut File::open(temp_hdrl)?, &mut output)?;
+    io::copy(&mut BufReader::new(File::open(temp_hdrl)?), &mut output)?;
 
-    output.write_all(b"movi")?;
+    output.write_all(MOVI_MARKER)?;
     let movi_file = File::open(temp_movi)?;
     let mmap = unsafe { Mmap::map(&movi_file)? };
 
@@ -194,7 +199,7 @@ pub fn assemble_output_file(fileout: &PathBuf, temp_hdrl: &PathBuf, temp_movi: &
         output.write_all(&mmap[frame.offset..frame.offset + frame.size])?;
     }
 
-    io::copy(&mut File::open(temp_idx1)?, &mut output)?;
+    io::copy(&mut BufReader::new(File::open(temp_idx1)?), &mut output)?;
 
     Ok(())
 }

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::thread;
 use super::models::{Gooey, ProcessState, ProcessingStep};
 use super::video_processing::{ffmpeg_to_avi, spawn_try_ffplay, ffmpeg_to_mp4};
+use super::welcome_screen::{render_datamosh_guide, render_welcome_screen};
 use tomatwo_seed::{Opt, process_video, extract_frame_data, simulate_processing};
 
 
@@ -99,100 +100,10 @@ impl Gooey {
             self.frame_data = Some((processed_frames, new_max_size));
         }
     }
-
-    // GUI Components
-
-    fn render_no_video_selected(&self, ui: &mut egui::Ui) {
-        ui.add_space(20.0);
-        ui.heading(egui::RichText::new("No video file selected").size(14.0));
-        ui.add_space(10.0);
-        ui.label("Click above and select an AVI or other video file to get started");
-        ui.add_space(10.0);
-        ui.label("• AVI files are used as is");
-        ui.label("• Other video files will be converted to AVI using ffmpeg");
-        ui.add_space(20.0);
-
-        egui::CollapsingHeader::new("Software Requirements")
-            .default_open(true)
-            .show(ui, |ui| {
-                ui.label("gooey tomatwo requires:");
-                ui.indent("requirements", |ui| {
-                    ui.label("• ffmpeg - to prepare mp4s to avi and bake avis to mp4");
-                    ui.label("• ffplay - to preview videos");
-                });
-                ui.add_space(5.0);
-                if ui.button("Download ffmpeg").clicked() {
-                    // Open URL: https://ffmpeg.org/download.html
-                }
-            });
-
-        ui.add_space(20.0);
-        ui.separator();
-        ui.add_space(10.0);
-
-        ui.horizontal(|ui| {
-            // ui.add(egui::Image::new(egui::include_image!("path/to/tomatwo_icon.png")));
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new("About tomatwo").size(18.0).strong());
-                ui.label("tomatwo is ufffd's rusty n dusty experimental fork of tomato.py, originally by Kaspar Ravel (MIT License)");
-                if ui.link("https://github.com/itsKaspar/tomato").clicked() {
-                    // Open URL
-                }
-            });
-        });
-
-        ui.add_space(20.0);
-
-        egui::CollapsingHeader::new("Datamosh Effects Guide")
-            .default_open(false)
-            .show(ui, |ui| {
-                self.render_datamosh_guide(ui);
-            });
-    }
-
-    fn render_datamosh_guide(&self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("Modes (c - count, n - position):").strong());
-        for (mode, description) in [
-            ("void", "leaves frames in order while applying other parameters"),
-            ("random", "randomizes frame order"),
-            ("reverse", "reverse frame order"),
-            ("invert", "flips each consecutive frame pair"),
-            ("bloom", "duplicates c times p-frame number n"),
-            ("pulse", "duplicates groups of c p-frames every n frames"),
-            ("overlap", "copy group of c frames taken from every nth position"),
-            ("jiggle", "take frame from around current position. n parameter is spread size [broken]"),
-        ] {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(mode).monospace().strong());
-                ui.label(description);
-            });
-        }
-
-        ui.add_space(10.0);
-        ui.label(egui::RichText::new("Other parameters:").strong());
-        ui.label("• remove first frame (default on)");
-        ui.label("• audio (not implemented yet)");
-        ui.label("• kill: kill frames with too much data relative to the largest frame. default 0.7");
-        ui.label("• kill_rel: kill frames with too much data relative to the previous frame size. default 0.15");
-
-        ui.add_space(10.0);
-        ui.label(egui::RichText::new("Examples:").strong());
-        for (title, command) in [
-            ("Take out all iframes:", "void: kill ~ 0.2 or kill_rel ~ 0.15"),
-            ("Duplicate the 100th frame, 50 times:", "bloom c:50 n:100"),
-            ("Duplicate every 10th frame 5 times each:", "pulse c:5 n:10"),
-            ("Shuffle all frames in the video:", "random"),
-            ("Copy 4 frames starting from every 2nd frame:", "overlap c:4 n:2"),
-        ] {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(title).strong());
-                ui.label(egui::RichText::new(command).monospace());
-            });
-        }
-    }
 }
 
 impl eframe::App for Gooey {
+    // player = player.with_audio(&mut my_state.audio_device)
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // settings
         let dark_mode = egui::Visuals::dark();
@@ -265,7 +176,7 @@ impl eframe::App for Gooey {
         egui::CentralPanel::default().show(ctx, |ui| {
             if None == self.avi_path {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    self.render_no_video_selected(ui);
+                    render_welcome_screen(ui);
                 });
             }
             if let Some((frame_data, max_frame_size)) = &self.frame_data {
@@ -392,7 +303,7 @@ impl eframe::App for Gooey {
             ui.horizontal(|ui| {
                 if self.avi_path.is_some() {
                     if ui.button("taste").clicked() { self.process_video(true); }
-                    if ui.button("jar → avi)").clicked() { self.process_video(false); }
+                    if ui.button("jar 🥫 avi)").clicked() { self.process_video(false); }
                 }
             });
 
@@ -402,10 +313,10 @@ impl eframe::App for Gooey {
                 ProcessState::Datamoshing => { ui.add(egui::ProgressBar::new(0.5).text("Datamoshing...")); }
                 ProcessState::Done(path) => {
                     ui.label(format!("Saved to: {}", path.display()));
-                    if ui.button("play").clicked() {
+                    if ui.button("play 🍴").clicked() {
                         let _handle = spawn_try_ffplay(path.clone());
                     }
-                    if ui.button("bake → mp4").clicked() {
+                    if ui.button("bake 🍝 mp4").clicked() {
                         // prompt for file name/location then converts to mp4 and saves
                         let output = rfd::FileDialog::new().save_file();
                         if let Some(output) = output {
