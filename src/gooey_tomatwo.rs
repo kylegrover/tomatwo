@@ -6,7 +6,7 @@ fn main() -> Result<(), eframe::Error> {
     runtime_init();
     let options = eframe::NativeOptions::default();
     eframe::run_native(
-        "G 🍅 🍅 E Y   T 🍅 M A T W 🍅 v0.-1",
+        "G 🍅 🍅 E Y   T 🍅 M A T W 🍅 v0.-2",
         options,
         Box::new(|cc| Box::new(Gooey::new(cc))),
     )
