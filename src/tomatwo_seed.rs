@@ -38,8 +38,8 @@ pub enum FrameType {
     Void,
 }
 
-pub fn process_frames(clean_frames: &[Frame], opt: &Opt) -> Vec<Frame> {
-    match opt.mode.as_str() {
+pub fn process_frames(clean_frames: &[Frame], opt: &Opt) -> (Vec<Frame>, Vec<usize>) {
+    let processed_frames = match opt.mode.as_str() {
         "void" => clean_frames.to_vec(),
         "random" => {
             let mut rng = rand::thread_rng();
@@ -86,7 +86,56 @@ pub fn process_frames(clean_frames: &[Frame], opt: &Opt) -> Vec<Frame> {
             eprintln!("Mode not implemented, using void");
             clean_frames.to_vec()
         }
+    };
+    let processed_sizes = processed_frames.iter().map(|f| f.size).collect();
+    (processed_frames, processed_sizes)
+}
+
+pub fn simulate_processing(mut frame_data: Vec<Frame>, steps: &[Opt]) -> Vec<Frame> {
+    let orig_frame_count = frame_data.len();
+    for step in steps {
+        let mut clean_frames = Vec::new();
+        let max_frame_size = frame_data.iter().map(|f| f.size).max().unwrap_or(0);
+        let mut prev_frame_size = 0;
+
+        // keep first video frame or not
+        if step.firstframe {
+            if let Some(first_video_frame) = frame_data.iter().find(|f| f.frame_type == FrameType::Video) {
+                clean_frames.push(first_video_frame.clone());
+                prev_frame_size = first_video_frame.size;
+            }
+        }
+
+        // clean the list by killing "big" frames and frames with large relative size increases
+        for frame in &frame_data {
+            let keep_frame = frame.size as f32 <= (max_frame_size as f32 * step.kill) &&
+                            (frame.size as f32 <= prev_frame_size as f32 * (1.0 + step.kill_rel));
+
+            if keep_frame {
+                clean_frames.push(frame.clone());
+            }
+            prev_frame_size = frame.size;
+        }
+
+
+        let (processed_frames, _) = process_frames(&clean_frames, &step);
+        let mut final_frames = processed_frames;
+
+        if step.multiply > 1 {
+            let mut new_frames = Vec::new();
+            for frame in final_frames {
+                for _ in 0..step.multiply {
+                    new_frames.push(frame.clone());
+                }
+            }
+            final_frames = new_frames;
+        }
+        frame_data = final_frames;
     }
+    println!("> Simulated processing: {} -> {} frames using {} steps", 
+        orig_frame_count, frame_data.len(), steps.len());
+    
+    frame_data
 }
 
 pub fn bstream_until_marker(input: &PathBuf, output: &PathBuf, marker: Option<&[u8]>, startpos: usize) -> io::Result<usize> {
@@ -186,7 +235,9 @@ pub fn process_video(opt: &Opt) -> io::Result<PathBuf> {
         prev_frame_size = frame.size;
     }
 
-    let mut final_frames = process_frames(&clean_frames, &opt);
+
+    let (processed_frames, _) = process_frames(&clean_frames, &opt);
+    let mut final_frames = processed_frames;
 
     if opt.multiply > 1 {
         let mut new_frames = Vec::new();

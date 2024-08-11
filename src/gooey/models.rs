@@ -22,6 +22,8 @@ pub struct Gooey {
     pub tx: std::sync::mpsc::Sender<ProcessState>,
     pub processing_steps: Vec<ProcessingStep>,
     pub selected_step: Option<usize>,
+    pub original_frame_data: Option<(Vec<Frame>, usize)>,
+    pub frame_data_needs_update: bool,
 }
 
 impl Default for Gooey {
@@ -38,6 +40,8 @@ impl Default for Gooey {
             tx,
             processing_steps: vec![ProcessingStep::default()],
             selected_step: None,
+            original_frame_data: None,
+            frame_data_needs_update: false,
         }
     }
 }

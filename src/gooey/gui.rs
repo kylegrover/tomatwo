@@ -1,9 +1,10 @@
 use eframe::egui;
 use std::sync::mpsc::{channel};
+use std::path::PathBuf;
 use std::thread;
 use super::models::{Gooey, ProcessState, ProcessingStep};
 use super::video_processing::{ffmpeg_to_avi, spawn_try_ffplay, ffmpeg_to_mp4};
-use tomatwo_seed::{Opt, process_video, extract_frame_data};
+use tomatwo_seed::{Opt, process_video, extract_frame_data, simulate_processing};
 
 
 impl Gooey {
@@ -63,13 +64,130 @@ impl Gooey {
         if let Some(avi_path) = &self.avi_path {
             match extract_frame_data(avi_path) {
                 Ok((frames, max_size)) => {
+                    self.original_frame_data = Some((frames.clone(), max_size));
                     self.frame_data = Some((frames, max_size));
                 },
                 Err(e) => {
                     eprintln!("Error extracting frame data: {:?}", e);
+                    self.original_frame_data = None;
                     self.frame_data = None;
                 }
             }
+        }
+    }
+
+    fn update_frame_data_for_selected_step(&mut self) {
+        println!("Updating frame data for selected step");
+        if let (Some((original_frames, max_size)), Some(selected)) = (&self.original_frame_data, self.selected_step) {
+            let steps_to_apply: Vec<Opt> = self.processing_steps[0..selected].iter().map(|step| {
+                Opt {
+                    input: PathBuf::new(), // Dummy path
+                    mode: step.mode.clone(),
+                    countframes: step.count_frames,
+                    positframes: step.posit_frames,
+                    audio: false,
+                    firstframe: false,
+                    kill: step.kill,
+                    kill_rel: step.kill_rel,
+                    multiply: step.multiply,
+                    preview: false,
+                }
+            }).collect();
+    
+            let processed_frames = simulate_processing(original_frames.clone(), &steps_to_apply);
+            let new_max_size = processed_frames.iter().map(|f| f.size).max().unwrap_or(*max_size);
+            self.frame_data = Some((processed_frames, new_max_size));
+        }
+    }
+
+    // GUI Components
+
+    fn render_no_video_selected(&self, ui: &mut egui::Ui) {
+        ui.add_space(20.0);
+        ui.heading(egui::RichText::new("No video file selected").size(14.0));
+        ui.add_space(10.0);
+        ui.label("Click above and select an AVI or other video file to get started");
+        ui.add_space(10.0);
+        ui.label("• AVI files are used as is");
+        ui.label("• Other video files will be converted to AVI using ffmpeg");
+        ui.add_space(20.0);
+
+        egui::CollapsingHeader::new("Software Requirements")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.label("gooey tomatwo requires:");
+                ui.indent("requirements", |ui| {
+                    ui.label("• ffmpeg - to prepare mp4s to avi and bake avis to mp4");
+                    ui.label("• ffplay - to preview videos");
+                });
+                ui.add_space(5.0);
+                if ui.button("Download ffmpeg").clicked() {
+                    // Open URL: https://ffmpeg.org/download.html
+                }
+            });
+
+        ui.add_space(20.0);
+        ui.separator();
+        ui.add_space(10.0);
+
+        ui.horizontal(|ui| {
+            // ui.add(egui::Image::new(egui::include_image!("path/to/tomatwo_icon.png")));
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("About tomatwo").size(18.0).strong());
+                ui.label("tomatwo is ufffd's rusty n dusty experimental fork of tomato.py, originally by Kaspar Ravel (MIT License)");
+                if ui.link("https://github.com/itsKaspar/tomato").clicked() {
+                    // Open URL
+                }
+            });
+        });
+
+        ui.add_space(20.0);
+
+        egui::CollapsingHeader::new("Datamosh Effects Guide")
+            .default_open(false)
+            .show(ui, |ui| {
+                self.render_datamosh_guide(ui);
+            });
+    }
+
+    fn render_datamosh_guide(&self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("Modes (c - count, n - position):").strong());
+        for (mode, description) in [
+            ("void", "leaves frames in order while applying other parameters"),
+            ("random", "randomizes frame order"),
+            ("reverse", "reverse frame order"),
+            ("invert", "flips each consecutive frame pair"),
+            ("bloom", "duplicates c times p-frame number n"),
+            ("pulse", "duplicates groups of c p-frames every n frames"),
+            ("overlap", "copy group of c frames taken from every nth position"),
+            ("jiggle", "take frame from around current position. n parameter is spread size [broken]"),
+        ] {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(mode).monospace().strong());
+                ui.label(description);
+            });
+        }
+
+        ui.add_space(10.0);
+        ui.label(egui::RichText::new("Other parameters:").strong());
+        ui.label("• remove first frame (default on)");
+        ui.label("• audio (not implemented yet)");
+        ui.label("• kill: kill frames with too much data relative to the largest frame. default 0.7");
+        ui.label("• kill_rel: kill frames with too much data relative to the previous frame size. default 0.15");
+
+        ui.add_space(10.0);
+        ui.label(egui::RichText::new("Examples:").strong());
+        for (title, command) in [
+            ("Take out all iframes:", "void: kill ~ 0.2 or kill_rel ~ 0.15"),
+            ("Duplicate the 100th frame, 50 times:", "bloom c:50 n:100"),
+            ("Duplicate every 10th frame 5 times each:", "pulse c:5 n:10"),
+            ("Shuffle all frames in the video:", "random"),
+            ("Copy 4 frames starting from every 2nd frame:", "overlap c:4 n:2"),
+        ] {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(title).strong());
+                ui.label(egui::RichText::new(command).monospace());
+            });
         }
     }
 }
@@ -80,22 +198,20 @@ impl eframe::App for Gooey {
         let dark_mode = egui::Visuals::dark();
         ctx.set_visuals(dark_mode);
 
-        // logic
-        if self.avi_path.is_some() {
-            self.extract_frame_data();
+        // Update frame data for selected step when necessary
+        if self.frame_data_needs_update {
+            self.update_frame_data_for_selected_step();
+            self.frame_data_needs_update = false;
         }
 
         // layout
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                ui.label("🍅");
                 let mut button_label = "📁 select source video";
-                let mut label = "Select an avi or other video file to get started";
                 if let Some(path) = &self.input_path {
-                    label = "🍅";
                     button_label = "🔄 change source video";
-                }
-                ui.label(label);
-                
+                }                
                 ui.add_space(10.0);
                 if ui.button(button_label).clicked() {
                     if let Some(path) = rfd::FileDialog::new().pick_file() {
@@ -117,7 +233,8 @@ impl eframe::App for Gooey {
                                 self.tx.send(ProcessState::Error).unwrap();
                             }
                         }
-                        // let handle = spawn_ffmpeg_to_avi(path, false);
+                        self.extract_frame_data();
+                        self.frame_data_needs_update = true;
                     }
                 }
                 if let Some(path) = &self.input_path {
@@ -134,16 +251,23 @@ impl eframe::App for Gooey {
                 let is_selected = self.selected_step == Some(index);
                 if ui.selectable_label(is_selected, format!("Step {}: {}", index + 1, step.mode)).clicked() {
                     self.selected_step = Some(index);
+                    self.frame_data_needs_update = true;
                 }
             }
             
             if ui.button("➕ add step").clicked() {
                 self.processing_steps.push(ProcessingStep::default());
                 self.selected_step = Some(self.processing_steps.len() - 1);
+                self.frame_data_needs_update = true;
             }
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            if None == self.avi_path {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.render_no_video_selected(ui);
+                });
+            }
             if let Some((frame_data, max_frame_size)) = &self.frame_data {
                 ui.label("Video Frame Data:");
                 // Allocate a specific size for the visualization
@@ -252,9 +376,14 @@ impl eframe::App for Gooey {
                     ui.add(egui::Slider::new(&mut step.multiply, 1..=10).text("Multiply"));
                 }
 
+                // if ui.changed() {
+                //     self.frame_data_needs_update = true;
+                // }
+
                 if remove_step {
                     self.processing_steps.remove(selected);
                     self.selected_step = None;
+                    self.frame_data_needs_update = true;
                 }
             }
         });
