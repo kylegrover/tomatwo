@@ -74,6 +74,8 @@ Comparison:
   - not sure how it handles broken files
 - use egui-video for display instead of ffplay
   - https://github.com/n00kii/egui-video
+- compile for web with wasm
+- compile python version with rustpython or py03
   
 
 
