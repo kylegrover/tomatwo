@@ -64,8 +64,6 @@ Comparison:
 ```
 
 ### loose ideas:
-- https://dioxuslabs.com/ for frontend?
-    run in browser with wasm? ffmpeg in browser?
 - onnx https://github.com/microsoft/onnxruntime for inference?
     https://github.com/pykeio/ort
     "WASM only via emscripten (limitation of onnxruntime)"
@@ -77,7 +75,7 @@ Comparison:
 - compile for web with wasm
 - compile python version with rustpython or py03
   
-
+- export as wasm and use wasm_bindgen + ffmpeg-wasm
 
 very us lynx
 - https://github.com/ucnv/aviglitch
@@ -88,3 +86,11 @@ very us lynx
     - https://github.com/n00kii/egui-video
 - https://github.com/dioxuslabs/dioxus
 - https://github.com/g-l-i-t-c-h-o-r-s-e/Datamosh-Den/blob/main-build/Datamosh%20Den.ahk
+- https://ffglitch.org/
+  - https://ffglitch.org/frontends/
+  - https://github.com/tiberiuiancu/datamoshing/blob/master/vector_util.py
+  - https://github.com/CubeZeero/datamoshing_GUI
+  - https://github.com/Akascape/Datamosher-Pro/blob/Datamosher-Pro-master/Python%20Version/DatamoshLib/FFG_effects/external_script.py
+- https://crates.io/crates/glow
+- https://crates.io/crates/glutin
+- https://crates.io/crates/ash
